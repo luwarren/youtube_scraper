@@ -3,31 +3,17 @@ import yt_dlp
 import os
 import concurrent.futures
 from yt_dlp.utils import ExtractorError
-from youtube_transcript_api import YouTubeTranscriptApi
 from tqdm import tqdm  # Progress bar
+from comment_scrape import get_top_comments
+from transcript_scrape import get_transcript
 
-# Ensure output directory exists
-OUTPUT_DIR = "output"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-def get_youtube_transcript(video_id):
-    """
-    Fetches the transcript of a YouTube video using YouTubeTranscriptApi.
-    """
-    try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id)
-        return "\n".join([entry['text'] for entry in transcript])
-    except Exception as e:
-        return f"Error fetching transcript: {e}"
-
-def extract_video_metadata(video_url, progress_bar):
+def extract_video_metadata(video_url, channel_name, progress_bar):
     """
     Extracts metadata and top comments for a given YouTube video.
     Updates progress bar on completion.
     """
     ydl_opts = {
         'quiet': True,
-        'getcomments': True,
         'skip_download': True,
     }
 
@@ -35,23 +21,9 @@ def extract_video_metadata(video_url, progress_bar):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             video_info = ydl.extract_info(video_url, download=False)
 
-            comments = video_info.get('comments', [])
-            sorted_comments = sorted(comments, key=lambda x: x.get('like_count', 0), reverse=True)
-            top_comments = [
-                {
-                    "parent": comment.get("parent"),
-                    "text": comment.get("text"),
-                    "like_count": comment.get("like_count"),
-                    "author": comment.get("author"),
-                    "author_is_uploader": comment.get("author_is_uploader"),
-                    "is_favorited": comment.get("is_favorited"),
-                    "is_pinned": comment.get("is_pinned"),
-                }
-                for comment in sorted_comments[:10]
-            ]
-
             video_id = video_info.get('id')
-            transcript_text = get_youtube_transcript(video_id)
+            transcript_text = get_transcript(video_id)
+            top_comments = get_top_comments(video_url)
 
             filtered_info = {
                 'channel': video_info.get('channel'),
@@ -66,7 +38,10 @@ def extract_video_metadata(video_url, progress_bar):
                 'transcript': transcript_text
             }
 
-            json_file = os.path.join(OUTPUT_DIR, f"{video_id}.json")
+            channel_dir = os.path.join("output", channel_name)
+            os.makedirs(channel_dir, exist_ok=True)
+
+            json_file = os.path.join(channel_dir, f"{video_id}.json")
             with open(json_file, "w", encoding="utf-8") as f:
                 json.dump(filtered_info, f, indent=4, ensure_ascii=False)
 
@@ -77,7 +52,7 @@ def extract_video_metadata(video_url, progress_bar):
 
 def get_youtube_data():
     """
-    Extracts video metadata and comments from a YouTube channel efficiently.
+    Extracts video metadata and comments from a YouTube channel.
     Allows user input for channel URL and number of videos.
     """
     channel_url = input("Enter the YouTube channel URL: ")
@@ -97,12 +72,13 @@ def get_youtube_data():
         print(f"Error extracting channel info: {e}")
         return
 
+    channel_name = info.get('title', 'Unknown_Channel').replace(" ", "_")
     video_urls = [entry['url'] for entry in info.get('entries', []) if 'url' in entry]
 
     # Initialize progress bar
-    with tqdm(total=len(video_urls), desc="Processing Videos", unit="video") as progress_bar:
+    with tqdm(total=len(video_urls), desc=f"Processing Videos from {channel_name}", unit="video") as progress_bar:
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            futures = [executor.submit(extract_video_metadata, video_url, progress_bar) for video_url in video_urls]
+            futures = [executor.submit(extract_video_metadata, video_url, channel_name, progress_bar) for video_url in video_urls]
             concurrent.futures.wait(futures)  # Wait for all tasks to finish
 
 if __name__ == "__main__":

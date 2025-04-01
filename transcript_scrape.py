@@ -1,6 +1,6 @@
 from youtube_transcript_api import YouTubeTranscriptApi
 
-def get_youtube_transcript(video_id):
+def get_transcript(video_id):
     """
     Fetches the transcript of a YouTube video using YouTubeTranscriptApi.
     """
